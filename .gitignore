@@ -1,0 +1,15 @@
+# Arquivos de Variáveis de Ambiente e Segredos
+.env
+*.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+
+# Node (Frontend)
+node_modules/
+build/
