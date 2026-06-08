@@ -2,6 +2,7 @@ import os
 import jwt
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware # IMPORTANTE: Adicione esta linha
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -16,6 +17,15 @@ ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(title="Vigilantia - Serviço de Parser e API Gateway")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

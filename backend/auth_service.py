@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware # IMPORTANTE: Adicione esta linha
 from passlib.context import CryptContext
 import jwt
 from dotenv import load_dotenv
@@ -14,6 +15,14 @@ ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
 
 app = FastAPI(title="Vigilantia - Serviço de Autenticação")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Em produção restringe-se ao IP do frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Configuração de Hash de senhas
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
