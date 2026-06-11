@@ -1,0 +1,100 @@
+version: "3.9"
+
+# Duas redes: interna (ES, auth, parser inacessíveis externamente) e externa (gateway + frontend).
+# Mitiga STRIDE: Spoofing, Tampering e Information Disclosure por isolamento de rede.
+networks:
+  vigilantia-internal:
+    driver: bridge
+    internal: true   # sem rota para a internet — serviços internos não são alcançáveis externamente
+  vigilantia-external:
+    driver: bridge
+
+volumes:
+  es_data:
+
+services:
+
+  # ── Elasticsearch ────────────────────────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTICSEARCH_PASSWORD}
+      - bootstrap.memory_lock=true
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - vigilantia-internal
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          curl -s -u elastic:${ELASTICSEARCH_PASSWORD}
+          http://localhost:9200/_cluster/health
+          | grep -qE '"status":"(green|yellow)"'
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ── Auth Service ─────────────────────────────────────────────────────────────
+  auth:
+    build:
+      context: ./auth
+    env_file: .env
+    networks:
+      - vigilantia-internal
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Parser Service ───────────────────────────────────────────────────────────
+  parser:
+    build:
+      context: ./parser
+    env_file: .env
+    networks:
+      - vigilantia-internal
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── API Gateway ──────────────────────────────────────────────────────────────
+  # Único ponto de entrada externo; conectado às duas redes.
+  gateway:
+    build:
+      context: ./gateway
+    env_file: .env
+    ports:
+      - "8000:8000"
+    networks:
+      - vigilantia-internal
+      - vigilantia-external
+    depends_on:
+      auth:
+        condition: service_started
+      parser:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Frontend (React + Nginx) ─────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_GATEWAY_URL: ${VITE_GATEWAY_URL:-http://localhost:8000}
+    ports:
+      - "3000:80"
+    networks:
+      - vigilantia-external
+    depends_on:
+      - gateway
+    restart: unless-stopped

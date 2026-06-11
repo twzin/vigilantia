@@ -1,19 +1,21 @@
-# Multi-stage build (Prática de DevSecOps para reduzir o tamanho da imagem final)
-FROM node:20-alpine as build
+# Multi-stage build: Node para compilar, Nginx para servir
+FROM node:20-alpine AS build
 WORKDIR /app
 
-# Copia os arquivos de dependência e instala (o npm roda DENTRO do container)
-COPY package*.json ./
-RUN npm install
+# VITE_GATEWAY_URL é injetado em build-time para que o bundle React saiba o endereço do gateway
+ARG VITE_GATEWAY_URL=http://localhost:8000
+ENV VITE_GATEWAY_URL=${VITE_GATEWAY_URL}
 
-# Copia o resto do código e faz o build (O Vite gera a pasta /app/dist)
+COPY package*.json ./
+RUN npm ci --omit=dev
+
 COPY . .
 RUN npm run build
 
-# Estágio final: Nginx limpo e seguro apenas com os arquivos estáticos
+# Estágio final: Nginx mínimo com apenas os estáticos
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Expõe a porta 80 para o cluster Kubernetes
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
