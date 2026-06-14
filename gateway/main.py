@@ -183,8 +183,54 @@ async def update_user(username: str, request: Request, token_payload: dict = Dep
 async def delete_user(username: str, token_payload: dict = Depends(require_admin)):
     async with httpx.AsyncClient() as client:
         resp = await client.delete(f"{AUTH_SERVICE_URL}/admin/users/{username}")
-    return Response(
-        content=resp.content,
-        status_code=resp.status_code,
-        media_type=resp.headers.get("content-type"),
-    )
+    return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
+
+
+# ── Alert rules (RF05) — admin only ───────────────────────────────────────────
+
+@app.get("/admin/alert-rules", tags=["Alertas"])
+async def list_alert_rules(token_payload: dict = Depends(require_admin)):
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{PARSER_SERVICE_URL}/admin/alert-rules")
+    return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
+
+
+@app.post("/admin/alert-rules", tags=["Alertas"])
+async def create_alert_rule(request: Request, token_payload: dict = Depends(require_admin)):
+    body = await request.body()
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(f"{PARSER_SERVICE_URL}/admin/alert-rules",
+                                  content=body, headers={"content-type": "application/json"})
+    return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
+
+
+@app.put("/admin/alert-rules/{rule_id}", tags=["Alertas"])
+async def update_alert_rule(rule_id: str, request: Request, token_payload: dict = Depends(require_admin)):
+    body = await request.body()
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(f"{PARSER_SERVICE_URL}/admin/alert-rules/{rule_id}",
+                                 content=body, headers={"content-type": "application/json"})
+    return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
+
+
+@app.delete("/admin/alert-rules/{rule_id}", tags=["Alertas"])
+async def delete_alert_rule(rule_id: str, token_payload: dict = Depends(require_admin)):
+    async with httpx.AsyncClient() as client:
+        resp = await client.delete(f"{PARSER_SERVICE_URL}/admin/alert-rules/{rule_id}")
+    return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
+
+
+# ── Alert history (RF07) — todos os usuários autenticados ─────────────────────
+
+@app.get("/alerts", tags=["Alertas"])
+async def list_alerts(request: Request, token_payload: dict = Depends(verify_token)):
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{PARSER_SERVICE_URL}/alerts", params=dict(request.query_params))
+    return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
+
+
+@app.patch("/alerts/{alert_id}/acknowledge", tags=["Alertas"])
+async def acknowledge_alert(alert_id: str, token_payload: dict = Depends(verify_token)):
+    async with httpx.AsyncClient() as client:
+        resp = await client.patch(f"{PARSER_SERVICE_URL}/alerts/{alert_id}/acknowledge")
+    return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
