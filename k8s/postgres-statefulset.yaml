@@ -15,10 +15,6 @@ spec:
         app: postgres
         tier: storage
     spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 999
-        fsGroup: 999
       containers:
         - name: postgres
           image: postgres:16-alpine
