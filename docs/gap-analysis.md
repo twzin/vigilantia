@@ -8,8 +8,8 @@ Documento vivo: atualizado ao fim de cada fase.
 |---|---|---|---|
 | RF01 | POST /ingest com API key | ✅ DONE | gateway/main.py:ingest, parser/main.py:ingest |
 | RF02 | Auth user/password + JWT | ✅ DONE | auth/main.py:login |
-| RF03 | Search & filtering | ✅ DONE | parser/main.py:search, gateway/main.py:search |
-| RF04 | Statistics panel | ✅ DONE | parser/main.py:stats, gateway/main.py:stats |
+| RF03 | Search & filtering | ✅ DONE | parser/main.py:search, gateway/main.py:search, frontend/src/Logs.jsx |
+| RF04 | Statistics panel | ✅ DONE | parser/main.py:stats, gateway/main.py:stats, frontend/src/Dashboard.jsx |
 | RF05 | Alert configuration | ⏳ Phase 3 | — |
 | RF06 | User management | ✅ PARTIAL | auth/main.py (CRUD em memória; banco real na Phase 3) |
 | RF07 | Alert history | ⏳ Phase 3 | — |
