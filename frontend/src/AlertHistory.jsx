@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { jwtDecode } from 'jwt-decode';
-import { BellRing, CheckCheck, Filter } from 'lucide-react';
+import { BellRing, CheckCheck, Filter, Globe, User, Server, MessageSquare } from 'lucide-react';
 import api from './api';
 import Navbar from './Navbar';
 
@@ -10,6 +10,27 @@ const INNER = { padding: '28px 28px 48px', maxWidth: '1000px', margin: '0 auto' 
 const CARD  = { background: 'linear-gradient(135deg,#1a1a35 0%,#12122a 100%)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '12px', padding: '22px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)' };
 
 const SEV_COLOR = { CRITICAL: '#ef4444', ERROR: '#f97316', WARNING: '#eab308', INFO: '#4ade80' };
+
+function Chip({ color, children }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontFamily: 'monospace', fontWeight: 600, background: `${color}18`, color, border: `1px solid ${color}30`, marginRight: '4px', marginBottom: '3px' }}>
+      {children}
+    </span>
+  );
+}
+
+function MetaRow({ icon, label, items, color }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', marginTop: '6px' }}>
+      <span style={{ color: '#4a5068', marginTop: '2px', flexShrink: 0 }}>{icon}</span>
+      <div>
+        <span style={{ fontSize: '10px', color: '#4a5068', textTransform: 'uppercase', letterSpacing: '0.5px', marginRight: '6px' }}>{label}</span>
+        {items.map((v, i) => <Chip key={i} color={color}>{v}</Chip>)}
+      </div>
+    </div>
+  );
+}
 
 function formatTs(iso) {
   try { return new Date(iso).toLocaleString('pt-BR'); } catch { return iso; }
@@ -112,10 +133,10 @@ export default function AlertHistory() {
                 const sColor = SEV_COLOR[alert.severity] || '#8892a4';
                 return (
                   <div key={alert.id} style={{ padding: '14px 16px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: `1px solid ${alert.acknowledged ? 'rgba(255,255,255,0.04)' : `${sColor}33`}`, opacity: alert.acknowledged ? 0.6 : 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                         <span style={{ padding: '2px 9px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, color: sColor, background: `${sColor}18`, textTransform: 'uppercase' }}>
-                          {alert.severity || '—'}
+                          {alert.severity ? `≥ ${alert.severity}` : '—'}
                         </span>
                         {!alert.acknowledged && (
                           <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '10px', fontWeight: 700, color: '#ef4444', background: 'rgba(239,68,68,0.1)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -125,11 +146,26 @@ export default function AlertHistory() {
                       </div>
                       <p style={{ margin: 0, fontWeight: 600, color: '#e8eaf0', fontSize: '14px' }}>{alert.rule_name}</p>
                       <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#8892a4' }}>
-                        {alert.event_count} eventos
-                        {alert.source && <> · <span style={{ color: '#60a5fa' }}>{alert.source}</span></>}
-                        {' '}· threshold: {alert.threshold} / {alert.window_minutes} min
+                        {alert.event_count} eventos · threshold: {alert.threshold} / {alert.window_minutes} min
+                        {alert.source && <> · fonte: <span style={{ color: '#60a5fa' }}>{alert.source}</span></>}
+                        {alert.keyword && <> · keyword: <span style={{ color: '#a78bfa' }}>"{alert.keyword}"</span></>}
                       </p>
-                      <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#4a5068', fontFamily: 'monospace' }}>{formatTs(alert['@timestamp'])}</p>
+
+                      {/* Metadados extraídos dos eventos */}
+                      <MetaRow icon={<Globe size={11} />} label="IPs"        items={alert.client_ips}      color="#f97316" />
+                      <MetaRow icon={<User   size={11} />} label="Usuários"  items={alert.usernames}       color="#60a5fa" />
+                      <MetaRow icon={<Server size={11} />} label="Devices"   items={alert.reporting_hosts} color="#8892a4" />
+
+                      {alert.sample_message && (
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', marginTop: '6px' }}>
+                          <span style={{ color: '#4a5068', marginTop: '2px', flexShrink: 0 }}><MessageSquare size={11} /></span>
+                          <p style={{ margin: 0, fontSize: '11px', color: '#4a5068', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {alert.sample_message}
+                          </p>
+                        </div>
+                      )}
+
+                      <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#4a5068', fontFamily: 'monospace' }}>{formatTs(alert['@timestamp'])}</p>
                     </div>
                     {!alert.acknowledged && (
                       <button onClick={() => handleAcknowledge(alert.id)} title="Marcar como reconhecido" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: 'rgba(74,222,128,0.1)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)', borderRadius: '6px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>

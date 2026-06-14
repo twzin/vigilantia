@@ -35,6 +35,21 @@ SEVERITY_PATTERNS = {
 # Ordem crescente de severidade — usada para filtros "≥ X"
 SEVERITY_ORDER = ["INFO", "WARNING", "ERROR", "CRITICAL"]
 
+# Extratores de campos estruturados a partir do texto da mensagem
+_RE_CLIENT_IP = re.compile(r'(?:from|src|source|client)\s+(\d{1,3}(?:\.\d{1,3}){3})', re.I)
+_RE_USERNAME  = re.compile(r'(?:for user|for|user|login|account)\s+([\w@.\-]{1,50}?)(?:\s|$)', re.I)
+
+def _extract_ip(message: str) -> Optional[str]:
+    m = _RE_CLIENT_IP.search(message)
+    return m.group(1) if m else None
+
+_USERNAME_STOPWORDS = {"the", "a", "an", "by", "invalid", "unknown", "failed", "user"}
+
+def _extract_username(message: str) -> Optional[str]:
+    m = _RE_USERNAME.search(message)
+    u = m.group(1) if m else None
+    return u if u and u.lower() not in _USERNAME_STOPWORDS else None
+
 
 @app.on_event("startup")
 async def startup():
@@ -54,11 +69,14 @@ async def _ensure_indices():
     indices = {
         LOGS_INDEX: {
             "mappings": {"properties": {
-                "@timestamp": {"type": "date"},
-                "source":     {"type": "keyword"},
-                "level":      {"type": "keyword"},
-                "message":    {"type": "text"},
-                "severity":   {"type": "keyword"},
+                "@timestamp":     {"type": "date"},
+                "source":         {"type": "keyword"},
+                "level":          {"type": "keyword"},
+                "message":        {"type": "text"},
+                "severity":       {"type": "keyword"},
+                "client_ip":      {"type": "ip",      "ignore_malformed": True},
+                "username":       {"type": "keyword"},
+                "reporting_host": {"type": "keyword"},
             }}
         },
         AUDIT_INDEX: {
@@ -84,16 +102,20 @@ async def _ensure_indices():
         },
         ALERTS_INDEX: {
             "mappings": {"properties": {
-                "@timestamp":     {"type": "date"},
-                "rule_id":        {"type": "keyword"},
-                "rule_name":      {"type": "keyword"},
-                "severity":       {"type": "keyword"},
-                "source":         {"type": "keyword"},
-                "keyword":        {"type": "keyword"},
-                "event_count":    {"type": "integer"},
-                "threshold":      {"type": "integer"},
-                "window_minutes": {"type": "integer"},
-                "acknowledged":   {"type": "boolean"},
+                "@timestamp":      {"type": "date"},
+                "rule_id":         {"type": "keyword"},
+                "rule_name":       {"type": "keyword"},
+                "severity":        {"type": "keyword"},
+                "source":          {"type": "keyword"},
+                "keyword":         {"type": "keyword"},
+                "event_count":     {"type": "integer"},
+                "threshold":       {"type": "integer"},
+                "window_minutes":  {"type": "integer"},
+                "acknowledged":    {"type": "boolean"},
+                "client_ips":      {"type": "ip",      "ignore_malformed": True},
+                "usernames":       {"type": "keyword"},
+                "reporting_hosts": {"type": "keyword"},
+                "sample_message":  {"type": "text"},
             }}
         },
     }
@@ -149,15 +171,20 @@ async def _normalize_syslog_events() -> int:
             (src.get("host") or {}).get("name") or
             "syslog"
         )
+        # hostname do syslog = dispositivo que enviou o log (≠ host do agente Filebeat)
+        reporting_host = src.get("hostname") or (src.get("host") or {}).get("hostname") or source
 
         _processed_syslog_ids.add(hit["_id"])
         operations.append({"index": {"_index": LOGS_INDEX}})
         operations.append({
-            "@timestamp": src.get("@timestamp", datetime.now(timezone.utc).isoformat()),
-            "source":     source,
-            "level":      severity.lower(),
-            "message":    msg,
-            "severity":   severity,
+            "@timestamp":     src.get("@timestamp", datetime.now(timezone.utc).isoformat()),
+            "source":         source,
+            "level":          severity.lower(),
+            "message":        msg,
+            "severity":       severity,
+            "client_ip":      _extract_ip(msg),
+            "username":       _extract_username(msg),
+            "reporting_host": reporting_host,
         })
 
     # Limpa o set quando fica grande (eventos antigos não serão revisitados de qualquer forma)
@@ -210,13 +237,17 @@ async def ingest(batch: LogBatch):
 
     operations = []
     for event in batch.events:
-        severity = classify_severity(event.get("message", ""))
+        msg      = event.get("message", "")
+        severity = classify_severity(msg)
         doc = {
-            "@timestamp": event.get("@timestamp", datetime.now(timezone.utc).isoformat()),
-            "source":  event.get("source", "unknown"),
-            "level":   event.get("level", "info"),
-            "message": event.get("message", ""),
-            "severity": severity,
+            "@timestamp":     event.get("@timestamp", datetime.now(timezone.utc).isoformat()),
+            "source":         event.get("source", "unknown"),
+            "level":          event.get("level", "info"),
+            "message":        msg,
+            "severity":       severity,
+            "client_ip":      event.get("client_ip") or _extract_ip(msg),
+            "username":       event.get("username")  or _extract_username(msg),
+            "reporting_host": event.get("reporting_host") or event.get("source", "unknown"),
         }
         operations.append({"index": {"_index": LOGS_INDEX}})
         operations.append(doc)
@@ -273,17 +304,38 @@ async def _evaluate_alert_rules():
         if recent["count"] > 0:
             continue
 
+        # Busca amostra dos eventos disparadores para extrair metadados
+        try:
+            sample = await es.search(
+                index=LOGS_INDEX,
+                query={"bool": {"must": must}},
+                size=20,
+                sort=[{"@timestamp": {"order": "desc"}}],
+            )
+            hits = sample["hits"]["hits"]
+            client_ips      = list({h["_source"]["client_ip"]      for h in hits if h["_source"].get("client_ip")})[:10]
+            usernames       = list({h["_source"]["username"]        for h in hits if h["_source"].get("username")})[:10]
+            reporting_hosts = list({h["_source"]["reporting_host"]  for h in hits if h["_source"].get("reporting_host")})[:10]
+            sample_message  = hits[0]["_source"].get("message", "") if hits else ""
+        except Exception:
+            client_ips = usernames = reporting_hosts = []
+            sample_message = ""
+
         await es.index(index=ALERTS_INDEX, document={
-            "@timestamp":     datetime.now(timezone.utc).isoformat(),
-            "rule_id":        rule_id,
-            "rule_name":      rule.get("name", ""),
-            "severity":       rule.get("severity", ""),
-            "source":         rule.get("source", ""),
-            "keyword":        rule.get("keyword", ""),
-            "event_count":    count,
-            "threshold":      rule.get("threshold", 1),
-            "window_minutes": rule.get("window_minutes", 10),
-            "acknowledged":   False,
+            "@timestamp":      datetime.now(timezone.utc).isoformat(),
+            "rule_id":         rule_id,
+            "rule_name":       rule.get("name", ""),
+            "severity":        rule.get("severity", ""),
+            "source":          rule.get("source", ""),
+            "keyword":         rule.get("keyword", ""),
+            "event_count":     count,
+            "threshold":       rule.get("threshold", 1),
+            "window_minutes":  rule.get("window_minutes", 10),
+            "acknowledged":    False,
+            "client_ips":      client_ips,
+            "usernames":       usernames,
+            "reporting_hosts": reporting_hosts,
+            "sample_message":  sample_message,
         })
 
 
