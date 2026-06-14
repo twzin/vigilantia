@@ -1,8 +1,10 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ShieldAlert, LayoutDashboard, Search, LogOut } from 'lucide-react';
 
-const ROLE_LABEL = { admin: 'Admin', cliente: 'Cliente' };
-const ROLE_COLOR = { admin: '#f97316', cliente: '#60a5fa' };
+const ROLE_STYLE = {
+  admin:   { color: '#fb923c', bg: 'rgba(251,146,60,0.1)',  label: 'Admin' },
+  cliente: { color: '#60a5fa', bg: 'rgba(96,165,250,0.1)', label: 'Cliente' },
+};
 
 export default function Navbar({ role }) {
   const navigate = useNavigate();
@@ -13,53 +15,73 @@ export default function Navbar({ role }) {
     navigate('/');
   };
 
-  const navBtn = (path, label, Icon) => (
-    <button
-      onClick={() => navigate(path)}
-      style={{
-        display: 'flex', alignItems: 'center', gap: '6px',
-        padding: '7px 14px', border: 'none', borderRadius: '4px', cursor: 'pointer',
-        backgroundColor: pathname === path ? '#3a3a55' : 'transparent',
-        color: pathname === path ? '#4ade80' : '#cbd5e1',
-        fontSize: '14px',
-      }}
-    >
-      <Icon size={15} /> {label}
-    </button>
-  );
+  const s = ROLE_STYLE[role] || {};
+
+  const navBtn = (path, label, Icon) => {
+    const active = pathname === path;
+    return (
+      <button
+        key={path}
+        onClick={() => navigate(path)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '7px',
+          padding: '7px 14px', border: 'none', borderRadius: '6px',
+          cursor: 'pointer', fontSize: '13px', fontFamily: 'inherit', fontWeight: 500,
+          transition: 'background 0.15s, color 0.15s',
+          backgroundColor: active ? 'rgba(74,222,128,0.1)' : 'transparent',
+          color: active ? '#4ade80' : '#8892a4',
+          outline: active ? '1px solid rgba(74,222,128,0.2)' : 'none',
+        }}
+        onMouseEnter={e => { if (!active) e.currentTarget.style.color = '#e8eaf0'; }}
+        onMouseLeave={e => { if (!active) e.currentTarget.style.color = '#8892a4'; }}
+      >
+        <Icon size={14} /> {label}
+      </button>
+    );
+  };
 
   return (
     <header style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '12px 24px', backgroundColor: '#16162a',
-      borderBottom: '1px solid #2a2a40',
+      padding: '0 24px', height: '56px',
+      background: '#0d0d1a',
+      borderBottom: '1px solid rgba(255,255,255,0.06)',
+      position: 'sticky', top: 0, zIndex: 100,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <ShieldAlert size={22} color="#4ade80" />
-        <span style={{ fontWeight: 'bold', fontSize: '16px' }}>Vigilantia SIEM</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <ShieldAlert size={20} color="#4ade80" />
+          <span style={{ fontWeight: 700, fontSize: '15px', letterSpacing: '-0.3px', color: '#e8eaf0' }}>
+            Vigilantia
+          </span>
+        </div>
         {role && (
           <span style={{
-            fontSize: '11px', fontWeight: 'bold', padding: '2px 8px',
-            borderRadius: '999px', backgroundColor: '#2a2a40',
-            color: ROLE_COLOR[role] || '#cbd5e1', textTransform: 'uppercase',
+            fontSize: '10px', fontWeight: 700, padding: '2px 9px',
+            borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.8px',
+            color: s.color, background: s.bg,
           }}>
-            {ROLE_LABEL[role] || role}
+            {s.label}
           </span>
         )}
       </div>
 
-      <nav style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+      <nav style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
         {navBtn('/dashboard', 'Dashboard', LayoutDashboard)}
         {navBtn('/logs', 'Busca de Logs', Search)}
+        <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.08)', margin: '0 8px' }} />
         <button
           onClick={handleLogout}
           style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            padding: '7px 14px', border: 'none', borderRadius: '4px', cursor: 'pointer',
-            backgroundColor: 'transparent', color: '#f87171', fontSize: '14px', marginLeft: '8px',
+            display: 'flex', alignItems: 'center', gap: '7px',
+            padding: '7px 14px', border: 'none', borderRadius: '6px',
+            cursor: 'pointer', fontSize: '13px', fontFamily: 'inherit', fontWeight: 500,
+            background: 'transparent', color: '#8892a4', transition: 'color 0.15s',
           }}
+          onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = '#8892a4'; }}
         >
-          <LogOut size={15} /> Sair
+          <LogOut size={14} /> Sair
         </button>
       </nav>
     </header>
