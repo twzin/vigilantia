@@ -7,7 +7,7 @@ ARG VITE_GATEWAY_URL=http://localhost:8000
 ENV VITE_GATEWAY_URL=${VITE_GATEWAY_URL}
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
 COPY . .
 RUN npm run build
