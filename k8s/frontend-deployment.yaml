@@ -14,9 +14,6 @@ spec:
         app: frontend
         tier: frontend
     spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 101  # nginx default non-root user
       containers:
         - name: frontend
           image: ghcr.io/twzin/vigilantia-frontend:latest
