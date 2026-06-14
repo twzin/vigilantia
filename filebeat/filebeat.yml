@@ -1,0 +1,30 @@
+# Filebeat — Vigilantia SIEM
+# Escuta syslog em UDP/TCP 5140 e grava em syslog-raw-* no Elasticsearch.
+# O parser normaliza esses eventos para vigilantia-logs a cada 5 segundos.
+
+filebeat.inputs:
+  - type: syslog
+    enabled: true
+    protocol.udp:
+      host: "0.0.0.0:5140"
+
+  - type: syslog
+    enabled: true
+    protocol.tcp:
+      host: "0.0.0.0:5140"
+
+processors:
+  - add_host_metadata: ~
+
+output.elasticsearch:
+  hosts: ["${ELASTICSEARCH_URL}"]
+  username: "elastic"
+  password: "${ELASTICSEARCH_PASSWORD}"
+  index: "syslog-raw-%{+yyyy.MM.dd}"
+
+# Desabilita ILM e templates automáticos — o índice é criado pelo ES com mapeamento dinâmico
+setup.ilm.enabled: false
+setup.template.enabled: false
+
+logging.level: warning
+logging.to_files: false

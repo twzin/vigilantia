@@ -9,24 +9,25 @@ Sistema de **Security Information and Event Management (SIEM)** desenvolvido com
 ## Arquitetura
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Rede Externa                          │
-│                                                         │
-│   [Navegador] ──► [Frontend React :3000]                │
-│                          │                              │
-│   [Filebeat]  ──► [API Gateway :8000] ◄── [Analista]   │
-└──────────────────────────┼──────────────────────────────┘
-                           │
-┌──────────────────────────┼──────────────────────────────┐
-│                    Rede Interna                          │
-│                          │                              │
-│              ┌───────────┴───────────┐                  │
-│              ▼                       ▼                   │
-│     [Auth Service :8001]   [Parser Service :8002]       │
-│              │                       │                   │
-│              ▼                       ▼                   │
-│         [PostgreSQL]          [Elasticsearch]            │
-└─────────────────────────────────────────────────────────┘
+[Dispositivos / OS] ──syslog UDP/TCP 5140──► [Filebeat] ─► [syslog-raw-*]
+                                                                    │
+                                                          (normaliza a cada 5s)
+                                                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Rede Externa                                                            │
+│   [Navegador] ──► [Frontend React :3000]                                │
+│   [Analista]  ──► [API Gateway :8000]                                   │
+└────────────────────────────┬─────────────────────────────────────────────┘
+                             │ Rede Interna
+                   ┌─────────┴──────────┐
+                   ▼                    ▼
+         [Auth Service :8001]  [Parser Service :8002]
+                   │                    │
+                   ▼                    ▼
+             [PostgreSQL]        [Elasticsearch]
+                                 vigilantia-logs
+                                 vigilantia-alerts
+                                 syslog-raw-*
 ```
 
 | Serviço | Tecnologia | Porta | Função |
@@ -143,6 +144,7 @@ kubectl apply -f k8s/auth-deployment.yaml
 kubectl apply -f k8s/parser-deployment.yaml
 kubectl apply -f k8s/gateway-deployment.yaml
 kubectl apply -f k8s/frontend-deployment.yaml
+kubectl apply -f k8s/filebeat-deployment.yaml
 kubectl apply -f k8s/hpa.yaml
 ```
 
@@ -169,6 +171,163 @@ INGEST_API_KEY=<sua_key> locust -f tests/locustfile.py \
   --headless -u 50 -r 10 --run-time 60s \
   --html tests/load-test-report.html
 ```
+
+---
+
+## Ingestão via Syslog em Tempo Real (Filebeat)
+
+O Filebeat escuta syslog em UDP/TCP e grava os eventos brutos no Elasticsearch (`syslog-raw-*`). O Parser Service normaliza esses eventos para `vigilantia-logs` a cada 5 segundos, classificando severidade automaticamente.
+
+```
+[Firewall / Servidor / SO] ──syslog UDP/TCP──► [Filebeat] ──► [syslog-raw-*]
+                                                                      │
+                                                           [Parser — a cada 5s]
+                                                                      │
+                                                           [vigilantia-logs → Dashboard]
+```
+
+### Para onde apontar o syslog
+
+O endereço de destino depende do ambiente de execução e de onde está o dispositivo que envia os logs:
+
+#### Docker Compose
+
+| Origem dos logs | Endereço de destino | Porta |
+|---|---|---|
+| Mesma máquina que roda o Docker | `127.0.0.1` | `5140` |
+| Outro dispositivo na rede local (firewall, switch, servidor) | `<IP da máquina com Docker>` | `5140` |
+
+Para descobrir o IP da máquina na rede local:
+```bash
+# Linux/macOS
+ip route get 1 | awk '{print $7; exit}'
+
+# Windows
+ipconfig | findstr "IPv4"
+```
+
+Exemplo: se sua máquina tem IP `192.168.1.50`, configure o firewall para enviar syslog para `192.168.1.50:5140`.
+
+#### Kubernetes (kind — desenvolvimento local)
+
+No kind, o NodePort não fica em `127.0.0.1` — ele fica no IP do node (um container Docker). Descubra o IP:
+
+```bash
+kubectl get nodes -o wide
+# ou
+docker inspect vigilantia-control-plane \
+  --format '{{.NetworkSettings.Networks.kind.IPAddress}}'
+```
+
+O dispositivo deve apontar para `<IP_DO_NODE>:30514` (UDP) ou `<IP_DO_NODE>:30515` (TCP).
+
+#### Kubernetes (cluster real / produção)
+
+Aponte para o IP de qualquer node do cluster na porta NodePort:
+
+```
+<IP_DO_NODE>:30514   # UDP
+<IP_DO_NODE>:30515   # TCP
+```
+
+Para expor globalmente sem fixar um node, use um `LoadBalancer` ou `Ingress UDP` no lugar do NodePort.
+
+---
+
+### Testar com uma mensagem manual
+
+Substitua `<HOST>` e `<PORTA>` conforme a tabela acima.
+
+```bash
+# Linux/macOS — via logger (mais simples)
+logger -n <HOST> -P <PORTA> --udp "Teste de log syslog do servidor web"
+
+# Linux/macOS — via netcat, formato RFC 3164
+echo "<34>$(date +'%b %d %H:%M:%S') meuservidor sshd[1234]: Failed password for root from 10.0.0.1" \
+  | nc -u -w1 <HOST> <PORTA>
+
+# Windows — via PowerShell
+$udp = New-Object System.Net.Sockets.UdpClient
+$udp.Connect("<HOST>", <PORTA>)
+$msg = "<34>$(Get-Date -Format 'MMM dd HH:mm:ss') winhost audit: Login failed for Administrator"
+$bytes = [System.Text.Encoding]::ASCII.GetBytes($msg)
+$udp.Send($bytes, $bytes.Length)
+$udp.Close()
+```
+
+Após enviar, aguarde até 5 segundos e o evento aparece no dashboard em **http://localhost:3000**.
+
+---
+
+### Configurar dispositivos reais
+
+#### Firewall (pfSense / OPNsense)
+
+`Status → System Logs → Settings → Remote Logging`:
+- **Remote log servers**: `<IP_DA_MAQUINA>:<PORTA>`
+- **Syslog Contents**: escolha as categorias desejadas (Firewall, VPN, Auth, etc.)
+
+#### Servidor Linux (rsyslog)
+
+Crie `/etc/rsyslog.d/vigilantia.conf`:
+
+```
+# Encaminha todos os logs para o Vigilantia via UDP
+*.* @<IP_DA_MAQUINA>:<PORTA>
+
+# Para usar TCP (mais confiável):
+# *.* @@<IP_DA_MAQUINA>:<PORTA>
+```
+
+Reinicie: `sudo systemctl restart rsyslog`
+
+#### Servidor Linux (syslog-ng)
+
+```
+destination d_vigilantia {
+  network("<IP_DA_MAQUINA>" port(<PORTA>) transport("udp"));
+};
+log { source(s_src); destination(d_vigilantia); };
+```
+
+#### Cisco IOS / NX-OS
+
+```
+logging host <IP_DA_MAQUINA> transport udp port <PORTA>
+logging trap informational
+```
+
+#### Windows (NXLog)
+
+```xml
+<Output out_vigilantia>
+  Module  om_udpsyslog
+  Host    <IP_DA_MAQUINA>
+  Port    <PORTA>
+</Output>
+```
+
+---
+
+### Como os eventos aparecem no Vigilantia
+
+O Filebeat parseia o syslog e extrai automaticamente:
+
+| Campo syslog | Campo no Vigilantia | Exemplo |
+|---|---|---|
+| `program` / `process` | `source` | `sshd`, `nginx`, `kernel` |
+| `message` | `message` | `Failed password for root` |
+| Severity (PRI) + keywords | `severity` | `ERROR`, `CRITICAL`, `WARNING` |
+| Timestamp da mensagem | `@timestamp` | `2026-06-14T22:00:00Z` |
+
+Classificação de severidade automática (além do campo syslog):
+
+| Keywords na mensagem | Severidade atribuída |
+|---|---|
+| `exploit`, `breach`, `ransomware`, `fatal` | `CRITICAL` |
+| `error`, `failed`, `unauthorized`, `denied` | `ERROR` |
+| `warn`, `timeout`, `retry` | `WARNING` |
+| demais | `INFO` |
 
 ---
 
