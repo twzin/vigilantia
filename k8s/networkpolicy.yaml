@@ -1,0 +1,160 @@
+# NetworkPolicy — replica o isolamento de rede do Docker Compose no Kubernetes
+# Princípio: deny-all por padrão, libera apenas fluxos necessários.
+
+# ── 1. Deny-all default para o namespace ─────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: vigilantia
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# ── 2. Frontend → Gateway (porta 8000) ───────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-gateway
+  namespace: vigilantia
+spec:
+  podSelector:
+    matchLabels:
+      app: gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# ── 3. Acesso externo ao Gateway (NodePort 30800) ────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-to-gateway
+  namespace: vigilantia
+spec:
+  podSelector:
+    matchLabels:
+      app: gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8000
+---
+# ── 4. Gateway → Auth (porta 8001) ───────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-auth
+  namespace: vigilantia
+spec:
+  podSelector:
+    matchLabels:
+      app: auth
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway
+      ports:
+        - protocol: TCP
+          port: 8001
+---
+# ── 5. Gateway → Parser (porta 8002) ─────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-parser
+  namespace: vigilantia
+spec:
+  podSelector:
+    matchLabels:
+      app: parser
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway
+      ports:
+        - protocol: TCP
+          port: 8002
+---
+# ── 6. Auth + Parser → Elasticsearch (porta 9200) ────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-elasticsearch
+  namespace: vigilantia
+spec:
+  podSelector:
+    matchLabels:
+      app: elasticsearch
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: auth
+        - podSelector:
+            matchLabels:
+              app: parser
+      ports:
+        - protocol: TCP
+          port: 9200
+---
+# ── 7. Auth → PostgreSQL (porta 5432) ────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-auth-to-postgres
+  namespace: vigilantia
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: auth
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# ── 8. Egress: pods backend podem fazer DNS e chamar serviços internos ────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: vigilantia
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vigilantia

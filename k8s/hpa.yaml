@@ -1,0 +1,40 @@
+# HorizontalPodAutoscaler — escala o parser automaticamente sob carga
+# Requisito RNF01: suportar picos de ingestão sem degradação de performance
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: parser-hpa
+  namespace: vigilantia
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: parser
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60   # escala quando CPU média > 60%
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75   # escala quando memória média > 75%
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30   # reage rápido a picos
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 120  # aguarda 2 min antes de reduzir
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
