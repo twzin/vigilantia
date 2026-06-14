@@ -32,6 +32,9 @@ SEVERITY_PATTERNS = {
     "WARNING":  ["warn", "deprecated", "slow", "retry", "timeout"],
 }
 
+# Ordem crescente de severidade — usada para filtros "≥ X"
+SEVERITY_ORDER = ["INFO", "WARNING", "ERROR", "CRITICAL"]
+
 
 @app.on_event("startup")
 async def startup():
@@ -71,6 +74,7 @@ async def _ensure_indices():
                 "name":           {"type": "keyword"},
                 "severity":       {"type": "keyword"},
                 "source":         {"type": "keyword"},
+                "keyword":        {"type": "keyword"},
                 "threshold":      {"type": "integer"},
                 "window_minutes": {"type": "integer"},
                 "active":         {"type": "boolean"},
@@ -85,6 +89,7 @@ async def _ensure_indices():
                 "rule_name":      {"type": "keyword"},
                 "severity":       {"type": "keyword"},
                 "source":         {"type": "keyword"},
+                "keyword":        {"type": "keyword"},
                 "event_count":    {"type": "integer"},
                 "threshold":      {"type": "integer"},
                 "window_minutes": {"type": "integer"},
@@ -159,7 +164,7 @@ async def _normalize_syslog_events() -> int:
     if len(_processed_syslog_ids) > 50_000:
         _processed_syslog_ids.clear()
 
-    await es.bulk(operations=operations, refresh=False)
+    await es.bulk(operations=operations, refresh=True)
     await _evaluate_alert_rules()
     return len(new_hits)
 
@@ -237,10 +242,22 @@ async def _evaluate_alert_rules():
         since   = (datetime.now(timezone.utc) - window).isoformat()
 
         must = [{"range": {"@timestamp": {"gte": since}}}]
+
+        # Severidade: filtra por faixa "≥ severity" (ex: ERROR inclui ERROR + CRITICAL)
         if rule.get("severity"):
-            must.append({"term": {"severity": rule["severity"]}})
+            min_sev = rule["severity"].upper()
+            try:
+                idx = SEVERITY_ORDER.index(min_sev)
+                must.append({"terms": {"severity": SEVERITY_ORDER[idx:]}})
+            except ValueError:
+                must.append({"term": {"severity": min_sev}})
+
         if rule.get("source"):
             must.append({"term": {"source": rule["source"]}})
+
+        # Keyword: busca o termo na mensagem (case-insensitive via analisador padrão ES)
+        if rule.get("keyword"):
+            must.append({"match": {"message": rule["keyword"]}})
 
         count_result = await es.count(index=LOGS_INDEX, query={"bool": {"must": must}})
         count = count_result["count"]
@@ -262,6 +279,7 @@ async def _evaluate_alert_rules():
             "rule_name":      rule.get("name", ""),
             "severity":       rule.get("severity", ""),
             "source":         rule.get("source", ""),
+            "keyword":        rule.get("keyword", ""),
             "event_count":    count,
             "threshold":      rule.get("threshold", 1),
             "window_minutes": rule.get("window_minutes", 10),
@@ -328,8 +346,9 @@ async def stats():
 
 class AlertRule(BaseModel):
     name:           str
-    severity:       Optional[str] = None
+    severity:       Optional[str] = None   # severidade mínima: dispara em ≥ este nível
     source:         Optional[str] = None
+    keyword:        Optional[str] = None   # palavra-chave obrigatória na mensagem
     threshold:      int           = 5
     window_minutes: int           = 10
     active:         bool          = True

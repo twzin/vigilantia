@@ -13,7 +13,8 @@ const LABEL = { display: 'block', fontSize: '11px', fontWeight: 600, color: '#88
 
 const SEVERITIES  = ['', 'CRITICAL', 'ERROR', 'WARNING', 'INFO'];
 const SEV_COLOR   = { CRITICAL: '#ef4444', ERROR: '#f97316', WARNING: '#eab308', INFO: '#4ade80' };
-const emptyForm   = { name: '', severity: '', source: '', threshold: 5, window_minutes: 10 };
+const SEV_LABEL   = { CRITICAL: 'CRITICAL', ERROR: 'ERROR ou CRITICAL', WARNING: 'WARNING, ERROR ou CRITICAL', INFO: 'qualquer severidade' };
+const emptyForm   = { name: '', severity: '', source: '', keyword: '', threshold: 5, window_minutes: 10 };
 
 export default function AlertRules() {
   const navigate = useNavigate();
@@ -53,12 +54,13 @@ export default function AlertRules() {
       const decoded = jwtDecode(token);
       await api.post('/admin/alert-rules', {
         ...form,
-        severity:   form.severity || null,
-        source:     form.source   || null,
-        threshold:  Number(form.threshold),
+        severity:       form.severity || null,
+        source:         form.source   || null,
+        keyword:        form.keyword  || null,
+        threshold:      Number(form.threshold),
         window_minutes: Number(form.window_minutes),
-        active:     true,
-        created_by: decoded.sub,
+        active:         true,
+        created_by:     decoded.sub,
       });
       await fetchRules();
       setShowForm(false);
@@ -108,17 +110,21 @@ export default function AlertRules() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: '14px', marginBottom: '18px' }}>
                 <div style={{ gridColumn: 'span 2' }}>
                   <label style={LABEL}>Nome da Regra</label>
-                  <input style={INPUT} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="ex: Muitos eventos críticos" required />
+                  <input style={INPUT} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="ex: Brute force SSH" required />
                 </div>
                 <div>
-                  <label style={LABEL}>Severidade (opcional)</label>
+                  <label style={LABEL}>Severidade mínima ≥ (opcional)</label>
                   <select style={{ ...INPUT, cursor: 'pointer' }} value={form.severity} onChange={e => setForm(p => ({ ...p, severity: e.target.value }))}>
                     {SEVERITIES.map(s => <option key={s} value={s}>{s || 'Qualquer'}</option>)}
                   </select>
                 </div>
                 <div>
                   <label style={LABEL}>Fonte (opcional)</label>
-                  <input style={INPUT} value={form.source} onChange={e => setForm(p => ({ ...p, source: e.target.value }))} placeholder="ex: firewall" />
+                  <input style={INPUT} value={form.source} onChange={e => setForm(p => ({ ...p, source: e.target.value }))} placeholder="ex: sshd, nginx, firewalld" />
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label style={LABEL}>Keyword na mensagem (opcional)</label>
+                  <input style={INPUT} value={form.keyword} onChange={e => setForm(p => ({ ...p, keyword: e.target.value }))} placeholder='ex: "Failed password", "DENY", "exploit"' />
                 </div>
                 <div>
                   <label style={LABEL}>Threshold (eventos)</label>
@@ -131,8 +137,9 @@ export default function AlertRules() {
               </div>
               <p style={{ fontSize: '12px', color: '#4a5068', marginBottom: '18px' }}>
                 Dispara quando houver ≥ <strong style={{ color: '#e8eaf0' }}>{form.threshold}</strong> eventos
-                {form.severity && <> com severidade <strong style={{ color: SEV_COLOR[form.severity] }}>{form.severity}</strong></>}
-                {form.source && <> da fonte <strong style={{ color: '#60a5fa' }}>{form.source}</strong></>}
+                {form.severity && <> com severidade <strong style={{ color: SEV_COLOR[form.severity] }}>≥ {SEV_LABEL[form.severity] || form.severity}</strong></>}
+                {form.source && <> · fonte <strong style={{ color: '#60a5fa' }}>{form.source}</strong></>}
+                {form.keyword && <> · mensagem contém <strong style={{ color: '#a78bfa' }}>"{form.keyword}"</strong></>}
                 {' '}nos últimos <strong style={{ color: '#e8eaf0' }}>{form.window_minutes}</strong> min.
               </p>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
@@ -162,9 +169,10 @@ export default function AlertRules() {
                     <p style={{ margin: 0, fontWeight: 600, color: rule.active ? '#e8eaf0' : '#4a5068', fontSize: '14px' }}>{rule.name}</p>
                     <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#8892a4' }}>
                       ≥ {rule.threshold} eventos
-                      {rule.severity && <> · <span style={{ color: SEV_COLOR[rule.severity] || '#8892a4' }}>{rule.severity}</span></>}
+                      {rule.severity && <> · <span style={{ color: SEV_COLOR[rule.severity] || '#8892a4' }}>≥ {rule.severity}</span></>}
                       {rule.source && <> · <span style={{ color: '#60a5fa' }}>{rule.source}</span></>}
-                      {' '}· janela de {rule.window_minutes} min
+                      {rule.keyword && <> · <span style={{ color: '#a78bfa' }}>"{rule.keyword}"</span></>}
+                      {' '}· {rule.window_minutes} min
                     </p>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
