@@ -67,4 +67,4 @@ spec:
   ports:
     - port: 9200
       targetPort: 9200
-  clusterIP: None  # Headless service para StatefulSet
+  clusterIP: None
