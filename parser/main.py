@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 from datetime import datetime, timedelta, timezone
@@ -12,13 +13,18 @@ load_dotenv()
 ES_URL       = os.getenv("ELASTICSEARCH_URL", "http://elasticsearch:9200")
 ES_USER      = os.getenv("ELASTICSEARCH_USER", "elastic")
 ES_PASSWORD  = os.getenv("ELASTICSEARCH_PASSWORD", "change_me")
-LOGS_INDEX   = "vigilantia-logs"
-AUDIT_INDEX  = "vigilantia-audit"
-RULES_INDEX  = "vigilantia-alert-rules"
-ALERTS_INDEX = "vigilantia-alerts"
+LOGS_INDEX    = "vigilantia-logs"
+AUDIT_INDEX   = "vigilantia-audit"
+RULES_INDEX   = "vigilantia-alert-rules"
+ALERTS_INDEX  = "vigilantia-alerts"
+SYSLOG_INDEX  = "syslog-raw-*"  # Índice gravado pelo Filebeat
+
+# Set de IDs de documentos syslog já normalizados (evita re-processamento).
+_processed_syslog_ids: set = set()
 
 app = FastAPI(title="Vigilantia - Parser Service")
 es: Optional[AsyncElasticsearch] = None
+_normalizer_task: Optional[asyncio.Task] = None  # evita GC do background task
 
 SEVERITY_PATTERNS = {
     "CRITICAL": ["fatal", "c2 beaconing", "breach", "ransomware", "exploit"],
@@ -29,9 +35,10 @@ SEVERITY_PATTERNS = {
 
 @app.on_event("startup")
 async def startup():
-    global es
+    global es, _normalizer_task
     es = AsyncElasticsearch(ES_URL, basic_auth=(ES_USER, ES_PASSWORD), verify_certs=False)
     await _ensure_indices()
+    _normalizer_task = asyncio.create_task(_syslog_normalizer_loop())
 
 
 @app.on_event("shutdown")
@@ -88,6 +95,86 @@ async def _ensure_indices():
     for index, body in indices.items():
         if not await es.indices.exists(index=index):
             await es.indices.create(index=index, body=body)
+
+
+# ── Normalizador Filebeat syslog (background task) ────────────────────────────
+
+_SYSLOG_SEV_MAP = {
+    "emerg": "CRITICAL", "alert": "CRITICAL", "crit": "CRITICAL", "critical": "CRITICAL",
+    "err": "ERROR", "error": "ERROR",
+    "warning": "WARNING", "warn": "WARNING",
+    "notice": "INFO", "info": "INFO", "debug": "INFO",
+}
+
+
+async def _normalize_syslog_events() -> int:
+    """Lê documentos não-processados do índice syslog-raw-* (Filebeat) e normaliza para vigilantia-logs."""
+    global _processed_syslog_ids
+
+    try:
+        result = await es.search(
+            index=SYSLOG_INDEX,
+            query={"match_all": {}},
+            size=500,
+            sort=[{"@timestamp": {"order": "asc"}}],
+            ignore_unavailable=True,
+            allow_no_indices=True,
+        )
+    except Exception:
+        return 0
+
+    # Filtra apenas documentos ainda não processados
+    new_hits = [h for h in result["hits"]["hits"] if h["_id"] not in _processed_syslog_ids]
+    if not new_hits:
+        return 0
+
+    operations = []
+    for hit in new_hits:
+        src = hit["_source"]
+        msg = src.get("message", "")
+
+        syslog_sev = (((src.get("log") or {}).get("syslog") or {}).get("severity") or {}).get("name", "")
+        severity = _SYSLOG_SEV_MAP.get(syslog_sev.lower(), None) if syslog_sev else None
+        if not severity:
+            severity = classify_severity(msg)
+
+        proc = src.get("process") or {}
+        source = (
+            proc.get("program") or proc.get("name") or
+            (src.get("host") or {}).get("name") or
+            "syslog"
+        )
+
+        _processed_syslog_ids.add(hit["_id"])
+        operations.append({"index": {"_index": LOGS_INDEX}})
+        operations.append({
+            "@timestamp": src.get("@timestamp", datetime.now(timezone.utc).isoformat()),
+            "source":     source,
+            "level":      severity.lower(),
+            "message":    msg,
+            "severity":   severity,
+        })
+
+    # Limpa o set quando fica grande (eventos antigos não serão revisitados de qualquer forma)
+    if len(_processed_syslog_ids) > 50_000:
+        _processed_syslog_ids.clear()
+
+    await es.bulk(operations=operations, refresh=False)
+    await _evaluate_alert_rules()
+    return len(new_hits)
+
+
+async def _syslog_normalizer_loop():
+    """Loop infinito: normaliza eventos Filebeat a cada 5 segundos."""
+    print("[syslog-normalizer] Background task iniciado")
+    while True:
+        await asyncio.sleep(5)
+        try:
+            count = await _normalize_syslog_events()
+            if count:
+                print(f"[syslog-normalizer] {count} evento(s) normalizados do Filebeat")
+        except Exception as exc:
+            print(f"[syslog-normalizer] Erro: {exc}", flush=True)
 
 
 def classify_severity(message: str) -> str:

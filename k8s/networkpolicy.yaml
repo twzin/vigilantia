@@ -93,7 +93,7 @@ spec:
         - protocol: TCP
           port: 8002
 ---
-# ── 6. Auth + Parser → Elasticsearch (porta 9200) ────────────────────────────
+# ── 6. Auth + Parser + Filebeat → Elasticsearch (porta 9200) ─────────────────
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -113,11 +113,33 @@ spec:
         - podSelector:
             matchLabels:
               app: parser
+        - podSelector:
+            matchLabels:
+              app: filebeat
       ports:
         - protocol: TCP
           port: 9200
 ---
-# ── 7. Auth → PostgreSQL (porta 5432) ────────────────────────────────────────
+# ── 7. Externo → Filebeat (porta 5140 UDP+TCP) ───────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-to-filebeat
+  namespace: vigilantia
+spec:
+  podSelector:
+    matchLabels:
+      app: filebeat
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: UDP
+          port: 5140
+        - protocol: TCP
+          port: 5140
+---
+# ── 8. Auth → PostgreSQL (porta 5432) ────────────────────────────────────────
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -138,7 +160,7 @@ spec:
         - protocol: TCP
           port: 5432
 ---
-# ── 8. Egress: pods backend podem fazer DNS e chamar serviços internos ────────
+# ── 9. Egress: pods backend podem fazer DNS e chamar serviços internos ────────
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

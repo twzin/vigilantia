@@ -1,0 +1,111 @@
+# ── ConfigMap: filebeat.yml ───────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: vigilantia
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+      - type: syslog
+        enabled: true
+        protocol.udp:
+          host: "0.0.0.0:5140"
+
+      - type: syslog
+        enabled: true
+        protocol.tcp:
+          host: "0.0.0.0:5140"
+
+    processors:
+      - add_host_metadata: ~
+
+    output.elasticsearch:
+      hosts: ["${ELASTICSEARCH_URL}"]
+      username: "elastic"
+      password: "${ELASTICSEARCH_PASSWORD}"
+      index: "syslog-raw-%{+yyyy.MM.dd}"
+
+    setup.ilm.enabled: false
+    setup.template.enabled: false
+
+    logging.level: warning
+    logging.to_files: false
+---
+# ── Deployment ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: filebeat
+  namespace: vigilantia
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: filebeat
+  template:
+    metadata:
+      labels:
+        app: filebeat
+        tier: collector
+    spec:
+      containers:
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat:8.13.4
+          args: ["-e", "-strict.perms=false"]
+          env:
+            - name: ELASTICSEARCH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: vigilantia-config
+                  key: ELASTICSEARCH_URL
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vigilantia-secrets
+                  key: ELASTICSEARCH_PASSWORD
+          ports:
+            - containerPort: 5140
+              protocol: UDP
+              name: syslog-udp
+            - containerPort: 5140
+              protocol: TCP
+              name: syslog-tcp
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/filebeat/filebeat.yml
+              subPath: filebeat.yml
+              readOnly: true
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: filebeat-config
+---
+# ── Service: expõe syslog UDP/TCP via NodePort ───────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: filebeat
+  namespace: vigilantia
+spec:
+  selector:
+    app: filebeat
+  type: NodePort
+  ports:
+    - name: syslog-udp
+      protocol: UDP
+      port: 5140
+      targetPort: 5140
+      nodePort: 30514
+    - name: syslog-tcp
+      protocol: TCP
+      port: 5140
+      targetPort: 5140
+      nodePort: 30515
