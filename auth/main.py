@@ -25,6 +25,8 @@ def _require(key: str) -> str:
 SECRET_KEY                  = _require("JWT_SECRET_KEY")
 DATABASE_URL                = _require("DATABASE_URL")
 ES_PASSWORD                 = _require("ELASTICSEARCH_PASSWORD")
+ADMIN_PASSWORD              = _require("ADMIN_DEFAULT_PASSWORD")
+CLIENT_PASSWORD             = _require("CLIENT_DEFAULT_PASSWORD")
 ALGORITHM                   = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 ES_URL                      = os.getenv("ELASTICSEARCH_URL", "http://elasticsearch:9200")
@@ -82,8 +84,8 @@ async def startup():
         result = await session.execute(select(User))
         if not result.scalars().first():
             session.add_all([
-                User(username="admin_user",  hashed_password=pwd_context.hash("senha123"), role="admin",   active=True),
-                User(username="cliente_user", hashed_password=pwd_context.hash("senha123"), role="cliente", active=True),
+                User(username="admin_user",   hashed_password=pwd_context.hash(ADMIN_PASSWORD),  role="admin",   active=True),
+                User(username="cliente_user", hashed_password=pwd_context.hash(CLIENT_PASSWORD), role="cliente", active=True),
             ])
             await session.commit()
 
