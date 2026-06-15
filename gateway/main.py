@@ -12,11 +12,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change_me_in_production")
-ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://auth:8001")
+def _require(key: str) -> str:
+    value = os.getenv(key)
+    if not value:
+        raise RuntimeError(f"Variável de ambiente obrigatória não definida: {key}")
+    return value
+
+SECRET_KEY         = _require("JWT_SECRET_KEY")
+INGEST_API_KEY     = _require("INGEST_API_KEY")
+ALGORITHM          = os.getenv("JWT_ALGORITHM", "HS256")
+AUTH_SERVICE_URL   = os.getenv("AUTH_SERVICE_URL", "http://auth:8001")
 PARSER_SERVICE_URL = os.getenv("PARSER_SERVICE_URL", "http://parser:8002")
-INGEST_API_KEY = os.getenv("INGEST_API_KEY", "change_me_api_key")
 
 limiter = Limiter(key_func=get_remote_address)
 

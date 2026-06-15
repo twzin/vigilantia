@@ -10,9 +10,15 @@ from elasticsearch import AsyncElasticsearch, NotFoundError
 
 load_dotenv()
 
+def _require(key: str) -> str:
+    value = os.getenv(key)
+    if not value:
+        raise RuntimeError(f"Variável de ambiente obrigatória não definida: {key}")
+    return value
+
+ES_PASSWORD  = _require("ELASTICSEARCH_PASSWORD")
 ES_URL       = os.getenv("ELASTICSEARCH_URL", "http://elasticsearch:9200")
 ES_USER      = os.getenv("ELASTICSEARCH_USER", "elastic")
-ES_PASSWORD  = os.getenv("ELASTICSEARCH_PASSWORD", "change_me")
 LOGS_INDEX    = "vigilantia-logs"
 AUDIT_INDEX   = "vigilantia-audit"
 RULES_INDEX   = "vigilantia-alert-rules"

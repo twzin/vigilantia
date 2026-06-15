@@ -16,13 +16,19 @@ from elasticsearch import AsyncElasticsearch
 
 load_dotenv()
 
-SECRET_KEY                 = os.getenv("JWT_SECRET_KEY", "change_me_in_production")
-ALGORITHM                  = os.getenv("JWT_ALGORITHM", "HS256")
+def _require(key: str) -> str:
+    value = os.getenv(key)
+    if not value:
+        raise RuntimeError(f"Variável de ambiente obrigatória não definida: {key}")
+    return value
+
+SECRET_KEY                  = _require("JWT_SECRET_KEY")
+DATABASE_URL                = _require("DATABASE_URL")
+ES_PASSWORD                 = _require("ELASTICSEARCH_PASSWORD")
+ALGORITHM                   = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
-DATABASE_URL               = os.getenv("DATABASE_URL", "postgresql+asyncpg://vigilantia:change_me@postgres:5432/vigilantia")
-ES_URL                     = os.getenv("ELASTICSEARCH_URL", "http://elasticsearch:9200")
-ES_USER                    = os.getenv("ELASTICSEARCH_USER", "elastic")
-ES_PASSWORD                = os.getenv("ELASTICSEARCH_PASSWORD", "change_me")
+ES_URL                      = os.getenv("ELASTICSEARCH_URL", "http://elasticsearch:9200")
+ES_USER                     = os.getenv("ELASTICSEARCH_USER", "elastic")
 AUDIT_INDEX                = "vigilantia-audit"
 
 app = FastAPI(title="Vigilantia - Auth Service")
