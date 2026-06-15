@@ -132,7 +132,7 @@ docker exec vigilantia-control-plane sysctl -w vm.max_map_count=262144
 ```bash
 kubectl apply -f k8s/namespace.yaml
 kubectl apply -f k8s/configmap.yaml
-kubectl apply -f k8s/secret.yaml
+kubectl apply -f k8s/sealed-secret.yaml
 kubectl apply -f k8s/networkpolicy.yaml
 kubectl apply -f k8s/elasticsearch-statefulset.yaml
 kubectl apply -f k8s/postgres-statefulset.yaml
