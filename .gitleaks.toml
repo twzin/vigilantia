@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Sealed Secrets são ciphertext criptografado pelo controller K8s — não são credenciais reais"
+paths = [
+  '''k8s/sealed-secret\.yaml''',
+]
