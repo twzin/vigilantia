@@ -13,7 +13,7 @@ Documento vivo: atualizado ao fim de cada fase.
 | RF05 | Alert configuration | ✅ DONE | parser/main.py (rules CRUD + motor), gateway/main.py, frontend/src/AlertRules.jsx |
 | RF06 | User management | ✅ DONE | auth/main.py (PostgreSQL), gateway/main.py, frontend/src/Users.jsx |
 | RF07 | Alert history | ✅ DONE | parser/main.py (vigilantia-alerts), gateway/main.py, frontend/src/AlertHistory.jsx |
-| RF08 | Email notification | ⏳ Adiado | — (SMTP vars em .env.example) |
+| RF08 | Email notification | ⏳ PENDENTE | — (SMTP vars em .env.example) |
 | RF09 | Regex search | ✅ DONE | parser/main.py (parâmetro regex=true) |
 | RF10 | Severity classification | ✅ DONE | parser/main.py:classify_severity |
 
@@ -21,18 +21,18 @@ Documento vivo: atualizado ao fim de cada fase.
 
 | ID | Requisito | Status | Arquivo(s) |
 |---|---|---|---|
-| RNF01 | Perf ≤500ms / 1k events + load test | ⏳ Phase 4 | parser usa bulk indexing |
-| RNF02 | Secrets via .env / K8s Secrets | ✅ PARTIAL | .env.example criado; K8s na Phase 6 |
+| RNF01 | Perf ≤500ms / 1k events + load test | ✅ DONE | tests/locustfile.py — p95=6ms em /ingest |
+| RNF02 | Secrets via .env / K8s Secrets | ✅ DONE | .env.example, k8s/secret.yaml, k8s/sealed-secret.yaml |
 | RNF03 | Audit log imutável | ✅ DONE | auth/main.py:write_audit → vigilantia-audit (ES) |
 
 ## Rubrica
 
-| Item | Pts | Status |
-|---|---|---|
-| Architecture (microservices + API Gateway) | 1 | ✅ Phase 1 concluída |
-| Solution Implementation (todos RF+RNF) | 1 | 🔄 Phase 2–3 concluídas / Phase 4 pendente |
-| Deployment (K8s Deployments + HA) | 1 | ⏳ Phase 6 |
-| Application Security (STRIDE + SAST/SCA) | 1 | 🔄 Phase 4–5 |
-| Infrastructure Security (NetworkPolicy + PSA + Secrets) | 1 | ⏳ Phase 6 |
-| Pipelines (CI + CD + K8s deploy) | 1 | 🔄 Phase 5 |
-| Delivery (repo + relatório) | 1 | ⏳ Phase 7 |
+| Item | Pts | Status | Evidência |
+|---|---|---|---|
+| Architecture (microservices + API Gateway) | 1 | ✅ DONE | 5 serviços distintos, gateway como único ponto de entrada externo |
+| Solution Implementation (todos RF+RNF) | 1 | 🔄 PARTIAL | RF08 (email) pendente; demais RFs e RNFs completos |
+| Deployment (K8s Deployments + HA) | 1 | ✅ DONE | k8s/*.yaml, HPA, readiness/liveness probes, replicas ≥ 2 nos stateless |
+| Application Security (STRIDE + SAST/SCA) | 1 | ✅ DONE | docs/stride-analysis.md, Bandit (SAST), Trivy (SCA), Gitleaks (secret scan) |
+| Infrastructure Security (NetworkPolicy + securityContext + Sealed Secrets) | 1 | ✅ DONE | k8s/networkpolicy.yaml, securityContext em todos os deployments, k8s/sealed-secret.yaml |
+| Pipelines (CI + CD delivery + CD deployment) | 1 | ✅ DONE | .github/workflows/ci.yml — secret scan + SAST + SCA + build/push + deploy job |
+| Delivery (repo + relatório) | 1 | ⏳ PENDENTE | Relatório acadêmico fora do codebase |

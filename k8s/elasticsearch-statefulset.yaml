@@ -15,6 +15,10 @@ spec:
         app: elasticsearch
         tier: storage
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
         - name: elasticsearch
           image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
@@ -32,6 +36,10 @@ spec:
                 secretKeyRef:
                   name: vigilantia-secrets
                   key: ELASTICSEARCH_PASSWORD
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests:
               cpu: "500m"
