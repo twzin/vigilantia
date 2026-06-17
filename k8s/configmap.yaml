@@ -19,3 +19,5 @@ data:
   SMTP_USER: "alerts@example.com"
   ALERT_EMAIL_FROM: "alerts@vigilantia.local"
   ALERT_EMAIL_TO: "admin@vigilantia.local"
+  FRONTEND_URL: "http://localhost:3000"
+  # SMTP_PASSWORD deve ser adicionado ao sealed-secret em produção

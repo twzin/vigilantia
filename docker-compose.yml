@@ -8,6 +8,8 @@ networks:
     internal: true   # sem rota para a internet — serviços internos não são alcançáveis externamente
   vigilantia-external:
     driver: bridge
+  vigilantia-egress:
+    driver: bridge   # saída para internet apenas (SMTP para alertas RF08); sem portas expostas
 
 volumes:
   es_data:
@@ -84,6 +86,7 @@ services:
     env_file: .env
     networks:
       - vigilantia-internal
+      - vigilantia-egress   # saída para SMTP (RF08); sem portas expostas externamente
     depends_on:
       elasticsearch:
         condition: service_healthy
