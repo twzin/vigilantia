@@ -61,12 +61,12 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
 
-  # ── CD: build e push das imagens Docker (apenas em push para main) ────────────
+  # ── CD: build e push das imagens Docker ──────────────────────────────────────
   cd_build_push:
     name: CD (Build & Push Images)
     runs-on: ubuntu-latest
     needs: [ secret_scan, sast_backend_python, sca_dependency_scan ]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'push'
     permissions:
       contents: read
       packages: write
@@ -123,30 +123,60 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── CD: deploy no Kubernetes ─────────────────────────────────────────────────
-  # Em produção (cluster em nuvem): configure KUBE_CONFIG como secret no repo e
-  # remova o `if: false`. Para cluster kind local, use `make deploy` manualmente.
+  # ── CD: deploy no Kubernetes (cluster kind efêmero no runner) ────────────────
   cd_deploy:
-    name: CD (Deploy K8s)
+    name: CD (Deploy K8s — kind)
     runs-on: ubuntu-latest
     needs: [ cd_build_push ]
-    if: false
+    if: github.event_name == 'push'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configurar kubectl
-        uses: azure/setup-kubectl@v3
-
-      - name: Autenticar no cluster
+      - name: Instalar kind
         run: |
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
-          echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64
+          chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
 
-      - name: Aplicar manifests
-        run: kubectl apply -f k8s/ -n vigilantia
+      - name: Criar cluster kind
+        run: kind create cluster --name vigilantia --wait 60s
 
-      - name: Aguardar rollout
+      - name: Instalar sealed-secrets controller
         run: |
-          kubectl rollout status deployment/auth deployment/parser \
-            deployment/gateway deployment/frontend -n vigilantia --timeout=120s
+          kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.26.3/controller.yaml
+          kubectl wait --for=condition=available deployment/sealed-secrets-controller \
+            -n kube-system --timeout=90s
+
+      - name: Aplicar namespace e ConfigMap
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/configmap.yaml
+
+      - name: Criar Secret com valores de CI
+        run: |
+          kubectl create secret generic vigilantia-secrets \
+            --namespace vigilantia \
+            --from-literal=DATABASE_URL="postgresql+asyncpg://vigilantia:ci_pass@postgres:5432/vigilantia" \
+            --from-literal=ELASTICSEARCH_PASSWORD="ci_es_pass" \
+            --from-literal=INGEST_API_KEY="ci_ingest_key_placeholder" \
+            --from-literal=JWT_SECRET_KEY="ci_jwt_secret_key_placeholder_xxxxxx" \
+            --from-literal=POSTGRES_PASSWORD="ci_pass" \
+            --from-literal=SMTP_PASSWORD="ci_smtp_pass"
+
+      - name: Aplicar manifests K8s
+        run: |
+          kubectl apply -f k8s/networkpolicy.yaml
+          kubectl apply -f k8s/elasticsearch-statefulset.yaml
+          kubectl apply -f k8s/postgres-statefulset.yaml
+          kubectl apply -f k8s/auth-deployment.yaml
+          kubectl apply -f k8s/parser-deployment.yaml
+          kubectl apply -f k8s/gateway-deployment.yaml
+          kubectl apply -f k8s/frontend-deployment.yaml
+          kubectl apply -f k8s/filebeat-deployment.yaml
+          kubectl apply -f k8s/hpa.yaml
+
+      - name: Verificar objetos no cluster
+        run: |
+          echo "=== Deployments ===" && kubectl get deployments -n vigilantia
+          echo "=== Services ===" && kubectl get services -n vigilantia
+          echo "=== Pods ===" && kubectl get pods -n vigilantia

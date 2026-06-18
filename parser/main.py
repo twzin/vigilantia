@@ -2,7 +2,9 @@ import asyncio
 import os
 import re
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from typing import Optional
+import aiosmtplib
 from fastapi import FastAPI, Query, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -24,6 +26,14 @@ AUDIT_INDEX   = "vigilantia-audit"
 RULES_INDEX   = "vigilantia-alert-rules"
 ALERTS_INDEX  = "vigilantia-alerts"
 SYSLOG_INDEX  = "syslog-raw-*"  # Índice gravado pelo Filebeat
+
+SMTP_HOST         = os.getenv("SMTP_HOST", "")
+SMTP_PORT         = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER         = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD     = os.getenv("SMTP_PASSWORD", "")
+ALERT_EMAIL_FROM  = os.getenv("ALERT_EMAIL_FROM", "")
+ALERT_EMAIL_TO    = os.getenv("ALERT_EMAIL_TO", "")
+FRONTEND_URL      = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 # Set de IDs de documentos syslog já normalizados (evita re-processamento).
 _processed_syslog_ids: set = set()
@@ -55,6 +65,60 @@ def _extract_username(message: str) -> Optional[str]:
     m = _RE_USERNAME.search(message)
     u = m.group(1) if m else None
     return u if u and u.lower() not in _USERNAME_STOPWORDS else None
+
+
+async def _send_alert_email(alert_doc: dict) -> None:
+    """Envia email ao admin quando um alerta é disparado (RF08).
+    Silencioso se SMTP não estiver configurado."""
+    if not SMTP_HOST or not ALERT_EMAIL_TO:
+        return
+
+    subject = f"[Vigilantia] Alerta: {alert_doc.get('rule_name', '')} — {alert_doc.get('severity', '')}"
+
+    ips   = ", ".join(alert_doc.get("client_ips", []))      or "—"
+    users = ", ".join(alert_doc.get("usernames", []))        or "—"
+    hosts = ", ".join(alert_doc.get("reporting_hosts", [])) or "—"
+
+    body = (
+        f"Alerta disparado: {alert_doc.get('rule_name', '')}\n"
+        f"\n"
+        f"Severidade : {alert_doc.get('severity', '')}\n"
+        f"Eventos    : {alert_doc.get('event_count', 0)} (threshold: {alert_doc.get('threshold', 0)})\n"
+        f"Janela     : {alert_doc.get('window_minutes', 0)} minutos\n"
+        f"Fonte      : {alert_doc.get('source', '') or 'qualquer'}\n"
+        f"Keyword    : {alert_doc.get('keyword', '') or 'nenhuma'}\n"
+        f"Horário    : {alert_doc.get('@timestamp', '')}\n"
+        f"\n"
+        f"IPs detectados   : {ips}\n"
+        f"Usuários visados : {users}\n"
+        f"Hosts            : {hosts}\n"
+        f"\n"
+        f"Amostra da mensagem:\n{alert_doc.get('sample_message', '')}\n"
+        f"\n"
+        f"Ver alertas: {FRONTEND_URL}/alerts\n"
+    )
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"]    = ALERT_EMAIL_FROM or SMTP_USER
+    msg["To"]      = ALERT_EMAIL_TO
+    msg.set_content(body)
+
+    try:
+        use_tls   = SMTP_PORT == 465
+        start_tls = SMTP_PORT != 465
+        await aiosmtplib.send(
+            msg,
+            hostname=SMTP_HOST,
+            port=SMTP_PORT,
+            username=SMTP_USER or None,
+            password=SMTP_PASSWORD or None,
+            use_tls=use_tls,
+            start_tls=start_tls,
+        )
+        print(f"[email] Notificação enviada para {ALERT_EMAIL_TO} — alerta: {alert_doc.get('rule_name')}", flush=True)
+    except Exception as exc:
+        print(f"[email] Falha ao enviar notificação: {exc}", flush=True)
 
 
 @app.on_event("startup")
@@ -327,7 +391,7 @@ async def _evaluate_alert_rules():
             client_ips = usernames = reporting_hosts = []
             sample_message = ""
 
-        await es.index(index=ALERTS_INDEX, document={
+        alert_doc = {
             "@timestamp":      datetime.now(timezone.utc).isoformat(),
             "rule_id":         rule_id,
             "rule_name":       rule.get("name", ""),
@@ -342,7 +406,9 @@ async def _evaluate_alert_rules():
             "usernames":       usernames,
             "reporting_hosts": reporting_hosts,
             "sample_message":  sample_message,
-        })
+        }
+        await es.index(index=ALERTS_INDEX, document=alert_doc)
+        await _send_alert_email(alert_doc)
 
 
 # ── Busca e filtragem (RF03 + RF09) ───────────────────────────────────────────
