@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert } from 'lucide-react';
 import { authApi } from './api';
+import logo from './assets/logo.png';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -32,12 +32,9 @@ export default function Login() {
     <div className="login-bg">
       <div className="login-card">
         <div className="login-icon-wrap">
-          <div className="login-icon-bg">
-            <ShieldAlert size={26} color="#4ade80" />
-          </div>
+          <img src={logo} alt="Vigilantia" className="login-logo" />
         </div>
 
-        <h1 className="login-title">Vigilantia</h1>
         <p className="login-subtitle">Security Information &amp; Event Management</p>
 
         {error && <div className="login-error">{error}</div>}

@@ -6,19 +6,27 @@ import Users        from './Users';
 import AlertRules   from './AlertRules';
 import AlertHistory from './AlertHistory';
 import ProtectedRoute from './ProtectedRoute';
+import Layout       from './Layout';
+
+function Protected({ children, requiredRole }) {
+  return (
+    <ProtectedRoute requiredRole={requiredRole}>
+      <Layout>{children}</Layout>
+    </ProtectedRoute>
+  );
+}
 
 function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/"          element={<Login />} />
-        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/logs"      element={<ProtectedRoute><Logs /></ProtectedRoute>} />
-        <Route path="/alertas"   element={<ProtectedRoute><AlertHistory /></ProtectedRoute>} />
+        <Route path="/" element={<Login />} />
+        <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
+        <Route path="/logs"      element={<Protected><Logs /></Protected>} />
+        <Route path="/alertas"   element={<Protected><AlertHistory /></Protected>} />
 
-        {/* Admin only */}
-        <Route path="/admin/usuarios" element={<ProtectedRoute requiredRole="admin"><Users /></ProtectedRoute>} />
-        <Route path="/admin/alertas"  element={<ProtectedRoute requiredRole="admin"><AlertRules /></ProtectedRoute>} />
+        <Route path="/admin/usuarios" element={<Protected requiredRole="admin"><Users /></Protected>} />
+        <Route path="/admin/alertas"  element={<Protected requiredRole="admin"><AlertRules /></Protected>} />
       </Routes>
     </Router>
   );
