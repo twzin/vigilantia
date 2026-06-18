@@ -52,7 +52,7 @@ Sistema de **Security Information and Event Management (SIEM)** desenvolvido com
 - **RF07** — Histórico de alertas com reconhecimento
 - **RF09** — Busca com expressões regulares
 - **RF10** — Classificação automática de severidade (CRITICAL / ERROR / WARNING / INFO)
-- **RNF02** — Secrets via `.env` / Kubernetes Secrets
+- **RNF02** — Secrets via `.env` / Kubernetes Sealed Secrets
 - **RNF03** — Audit log imutável (append-only no Elasticsearch)
 
 ---
@@ -112,33 +112,50 @@ docker compose down -v
 
 ## Rodando com Kubernetes (kind)
 
-### 1. Instale o kind e kubectl
+### 1. Instale as dependências
+
 ```bash
+# kind
 curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64
 chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
 
+# kubectl
 curl -LO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
+
+# kubeseal (necessário para re-gerar os Sealed Secrets)
+curl -sSL https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.27.3/kubeseal-0.27.3-linux-amd64.tar.gz \
+  | tar -xz && sudo mv kubeseal /usr/local/bin/
 ```
 
-### 2. Crie o cluster
+### 2. Configure o .env
+```bash
+cp .env.example .env
+# Edite o .env e preencha as senhas reais
+```
+
+### 3. Crie o cluster
 ```bash
 kind create cluster --name vigilantia
 # Ajuste necessário para o Elasticsearch:
 docker exec vigilantia-control-plane sysctl -w vm.max_map_count=262144
 ```
 
-### 3. Aplique os manifests
+### 4. Aplique os manifests
 ```bash
 kubectl apply -f k8s/namespace.yaml
 kubectl apply -f k8s/configmap.yaml
+
+# Instala o Sealed Secrets controller e re-gera sealed-secret.yaml com a chave do cluster atual
+bash k8s/reseal-secrets.sh
 kubectl apply -f k8s/sealed-secret.yaml
+
 kubectl apply -f k8s/networkpolicy.yaml
 kubectl apply -f k8s/elasticsearch-statefulset.yaml
 kubectl apply -f k8s/postgres-statefulset.yaml
 
 # Aguarda storage subir
-kubectl wait --for=condition=ready pod -l app=postgres -n vigilantia --timeout=60s
+kubectl wait --for=condition=ready pod -l app=postgres -n vigilantia --timeout=120s
 
 kubectl apply -f k8s/auth-deployment.yaml
 kubectl apply -f k8s/parser-deployment.yaml
@@ -148,7 +165,9 @@ kubectl apply -f k8s/filebeat-deployment.yaml
 kubectl apply -f k8s/hpa.yaml
 ```
 
-### 4. Acesse via port-forward
+> **Importante:** o `reseal-secrets.sh` precisa ser executado toda vez que o cluster for recriado. Cada cluster kind gera uma chave diferente no Sealed Secrets controller, e o `sealed-secret.yaml` deve ser re-gerado com essa chave antes do apply.
+
+### 5. Acesse via port-forward
 ```bash
 # Terminal 1
 kubectl port-forward service/gateway 8000:8000 -n vigilantia
@@ -352,7 +371,7 @@ Classificação de severidade automática (além do campo syslog):
 - **SCA**: Trivy escaneia dependências e bloqueia CVEs HIGH/CRITICAL
 - **STRIDE**: Modelagem de ameaças documentada em [docs/stride-analysis.md](docs/stride-analysis.md)
 - **Rede isolada**: serviços internos inacessíveis externamente (Docker e K8s NetworkPolicy)
-- **Secrets**: nunca commitados — gerenciados via `.env` (local) e Kubernetes Secrets (produção)
+- **Secrets**: nunca commitados — gerenciados via `.env` (local) e Kubernetes Sealed Secrets (produção)
 - **Audit log**: todas as ações administrativas registradas no Elasticsearch (append-only)
 
 ---
