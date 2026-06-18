@@ -22,8 +22,6 @@ spec:
             - containerPort: 5432
           securityContext:
             allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
           env:
             - name: POSTGRES_USER
               valueFrom:
